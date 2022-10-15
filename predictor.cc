@@ -145,76 +145,20 @@ void UpdatePredictor_2level(UINT32 PC, bool resolveDir, bool predDir, UINT32 bra
 // openend
 /////////////////////////////////////////////////////////////
 
-unsigned char  openend_history_table[512] = {0}; // 8bits pointer (6 bits used), all 0 initialized
-unsigned short openend_predictor_table[1024]; // 16bits pointer (16 bits used)
-unsigned char  openend_global_history = 0; // 4 bits used
+
 
 void InitPredictor_openend() 
 {
-  int i;
-  for(i = 0; i < 1024; i++)
-  {
-    openend_predictor_table[i] = 0b0101010101010101; // All weakly not taken initialized
-  }
+
 }
 
 bool GetPrediction_openend(UINT32 PC) 
 {
-  unsigned int   pc = PC >> 2; // Eliminate 2 most insignificant bits (always 0b00)
-  unsigned char  pht_index = pc & 0b111; // get first 3 bits
-  unsigned short bht_index = (pc >> 3) & 0b111111111; // get next 9 bits
-  // index histroy bits
-  unsigned short history_bit = openend_history_table[bht_index] | (openend_global_history << 6);
-  // index private predictor table by history bit
-  unsigned short pht_predictor_table = openend_predictor_table[history_bit];
-  // find saturated counter by PHT_index
-  unsigned char  saturated_counter = (pht_predictor_table >> (pht_index * 2)) & 0b11;
-  // parse the saturated counter
-  bool taken = saturated_counter >> 1;
-  return taken;
+  
 }
 
 void UpdatePredictor_openend(UINT32 PC, bool resolveDir, bool predDir, UINT32 branchTarget) 
 {
-  // get all data in need first
-  unsigned int   pc = PC >> 2; // Eliminate 2 most insignificant bits (always 0b00)
-  unsigned char  pht_index = pc & 0b111; // get first 3 bits
-  unsigned short bht_index = (pc >> 3) & 0b111111111; // get next 9 bits
-  // index histroy bits
-  unsigned short history_bit = openend_history_table[bht_index] | (openend_global_history << 6);
-  // index private predictor table by history bit
-  unsigned short pht_predictor_table = openend_predictor_table[history_bit];
-  // find saturated counter by PHT_index
-  unsigned char  saturated_counter = (pht_predictor_table >> (pht_index * 2)) & 0b11;
   
-  // Update history table
-  openend_history_table[bht_index] = ((history_bit << 1) & 0b111111111) | resolveDir;
-  openend_global_history = ((openend_global_history << 1) & 0b1111) | resolveDir;
-  
-  // Update saturated counter if needed
-  if(resolveDir == predDir) // Correct prediction
-  {
-    if (saturated_counter == 0b10) // weakly taken correct
-    {
-      saturated_counter++;
-    }
-    else if (saturated_counter == 0b01) // weakly not taken correct
-    {
-      saturated_counter--;
-    }
-  }
-  else // Misprediction
-  {
-    if (predDir)
-    {
-      saturated_counter--;
-    }
-    else
-    {
-      saturated_counter++;
-    }
-  }
-  pht_predictor_table = (saturated_counter << (pht_index * 2)) | (pht_predictor_table & ~(0b11 << (pht_index * 2)));
-  openend_predictor_table[history_bit] = pht_predictor_table;
 }
 
