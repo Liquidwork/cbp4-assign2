@@ -1,0 +1,220 @@
+#include "predictor.h"
+
+/////////////////////////////////////////////////////////////
+// 2bitsat
+/////////////////////////////////////////////////////////////
+unsigned char twobitsat_predictor_table[1024];
+
+void InitPredictor_2bitsat() 
+{
+  // Initialize the predictor table
+  int i;
+  for(i = 0; i < 1024; i++)
+  {
+    twobitsat_predictor_table[i] = 0b01010101; // Weakly NT at start 
+  }
+}
+
+bool GetPrediction_2bitsat(UINT32 PC) 
+{
+  unsigned int   pc = PC >> 2; // Eliminate 2 most insignificant bits (always 0b00)
+  unsigned char  bit_index = pc & 0b11;
+  unsigned short arr_index = (pc >> 2) & 0b1111111111;
+  // Get the counter from the table
+  unsigned char  counter = (twobitsat_predictor_table[arr_index] >> (bit_index * 2)) & 0b11;
+  // Determine taken or not
+  bool taken = counter >> 1; // 00,01:NT, 10,11:T
+    
+  return taken;
+}
+
+void UpdatePredictor_2bitsat(UINT32 PC, bool resolveDir, bool predDir, UINT32 branchTarget) 
+{
+  // Get all value first
+  unsigned int   pc = PC >> 2; // Eliminate 2 most insignificant bits (always 0b00)
+  unsigned char  bit_index = pc & 0b11;
+  unsigned short arr_index = (pc >> 2) & 0b1111111111;
+  // Get the counter from the table
+  unsigned char  counter = (twobitsat_predictor_table[arr_index] >> (bit_index * 2)) & 0b11;
+  
+  if(resolveDir == predDir) // Correct prediction
+  {
+    if (counter == 0b10) // weakly taken correct
+    {
+      counter++;
+    }
+    else if (counter == 0b01) // weakly not taken correct
+    {
+      counter--;
+    }
+  }
+  else // Misprediction
+  {
+    if (predDir)  // 11 or 10
+    {
+      counter--;
+    }
+    else // 00 or 01
+    {
+      counter++;
+    }
+  }
+  // Update counter into table
+  twobitsat_predictor_table[arr_index] = (counter << (bit_index * 2)) 
+      | (twobitsat_predictor_table[arr_index] & ~(0b11 << (bit_index * 2)));
+}
+
+/////////////////////////////////////////////////////////////
+// 2level
+/////////////////////////////////////////////////////////////
+
+unsigned char twolevel_history_table[512] = {0}; // 8bits pointer (6 bits used), all 0 initialized
+unsigned short twolevel_predictor_table[64]; // 16bits pointer (16 bits used)
+
+void InitPredictor_2level() 
+{
+  // twolevel_history_table = malloc(512 * sizeof(char));
+  // twolevel_predictor_table = malloc(64 * sizeof(short));
+  int i;
+  for(i = 0; i < 64; i++)
+  {
+    twolevel_predictor_table[i] = 0b0101010101010101; // All weakly not taken initialized
+  }
+}
+
+bool GetPrediction_2level(UINT32 PC) 
+{
+  unsigned int   pc = PC >> 2; // Eliminate 2 most insignificant bits (always 0b00)
+  unsigned char  pht_index = pc & 0b111; // get first 3 bits
+  unsigned short bht_index = (pc >> 3) & 0b111111111; // get next 9 bits
+  // index histroy bits
+  unsigned char  history_bit = twolevel_history_table[bht_index];
+  // index private predictor table by history bit
+  unsigned short pht_predictor_table = twolevel_predictor_table[history_bit];
+  // find saturated counter by PHT_index
+  unsigned char  saturated_counter = (pht_predictor_table >> (pht_index * 2)) & 0b11;
+  // parse the saturated counter
+  bool taken = saturated_counter >> 1;
+  return taken;
+}
+
+void UpdatePredictor_2level(UINT32 PC, bool resolveDir, bool predDir, UINT32 branchTarget) 
+{
+  // get all data in need first
+  unsigned int   pc = PC >> 2; // Eliminate 2 most insignificant bits (always 0b00)
+  unsigned char  pht_index = pc & 0b111; // get first 3 bits
+  unsigned short bht_index = (pc >> 3) & 0b111111111; // get next 9 bits
+  // index histroy bits
+  unsigned char  history_bit = twolevel_history_table[bht_index];
+  // index private predictor table by history bit
+  unsigned short pht_predictor_table = twolevel_predictor_table[history_bit];
+  // find saturated counter by PHT_index
+  unsigned char  saturated_counter = (pht_predictor_table >> (pht_index * 2)) & 0b11;
+  
+  // Update history table
+  twolevel_history_table[bht_index] = ((history_bit << 1) & 0b111111111) | resolveDir;
+  
+  // Update saturated counter if needed
+  if(resolveDir == predDir) // Correct prediction
+  {
+    if (saturated_counter == 0b10) // weakly taken correct
+    {
+      saturated_counter++;
+    }
+    else if (saturated_counter == 0b01) // weakly not taken correct
+    {
+      saturated_counter--;
+    }
+  }
+  else // Misprediction
+  {
+    if (predDir)
+    {
+      saturated_counter--;
+    }
+    else
+    {
+      saturated_counter++;
+    }
+  }
+  pht_predictor_table = (saturated_counter << (pht_index * 2)) | (pht_predictor_table & ~(0b11 << (pht_index * 2)));
+  twolevel_predictor_table[history_bit] = pht_predictor_table;
+}
+
+/////////////////////////////////////////////////////////////
+// openend
+/////////////////////////////////////////////////////////////
+
+unsigned char  openend_history_table[512] = {0}; // 8bits pointer (6 bits used), all 0 initialized
+unsigned short openend_predictor_table[1024]; // 16bits pointer (16 bits used)
+unsigned char  openend_global_history = 0; // 4 bits used
+
+void InitPredictor_openend() 
+{
+  int i;
+  for(i = 0; i < 1024; i++)
+  {
+    openend_predictor_table[i] = 0b0101010101010101; // All weakly not taken initialized
+  }
+}
+
+bool GetPrediction_openend(UINT32 PC) 
+{
+  unsigned int   pc = PC >> 2; // Eliminate 2 most insignificant bits (always 0b00)
+  unsigned char  pht_index = pc & 0b111; // get first 3 bits
+  unsigned short bht_index = (pc >> 3) & 0b111111111; // get next 9 bits
+  // index histroy bits
+  unsigned short history_bit = openend_history_table[bht_index] | (openend_global_history << 6);
+  // index private predictor table by history bit
+  unsigned short pht_predictor_table = openend_predictor_table[history_bit];
+  // find saturated counter by PHT_index
+  unsigned char  saturated_counter = (pht_predictor_table >> (pht_index * 2)) & 0b11;
+  // parse the saturated counter
+  bool taken = saturated_counter >> 1;
+  return taken;
+}
+
+void UpdatePredictor_openend(UINT32 PC, bool resolveDir, bool predDir, UINT32 branchTarget) 
+{
+  // get all data in need first
+  unsigned int   pc = PC >> 2; // Eliminate 2 most insignificant bits (always 0b00)
+  unsigned char  pht_index = pc & 0b111; // get first 3 bits
+  unsigned short bht_index = (pc >> 3) & 0b111111111; // get next 9 bits
+  // index histroy bits
+  unsigned short history_bit = openend_history_table[bht_index] | (openend_global_history << 6);
+  // index private predictor table by history bit
+  unsigned short pht_predictor_table = openend_predictor_table[history_bit];
+  // find saturated counter by PHT_index
+  unsigned char  saturated_counter = (pht_predictor_table >> (pht_index * 2)) & 0b11;
+  
+  // Update history table
+  openend_history_table[bht_index] = ((history_bit << 1) & 0b111111111) | resolveDir;
+  openend_global_history = ((openend_global_history << 1) & 0b1111) | resolveDir;
+  
+  // Update saturated counter if needed
+  if(resolveDir == predDir) // Correct prediction
+  {
+    if (saturated_counter == 0b10) // weakly taken correct
+    {
+      saturated_counter++;
+    }
+    else if (saturated_counter == 0b01) // weakly not taken correct
+    {
+      saturated_counter--;
+    }
+  }
+  else // Misprediction
+  {
+    if (predDir)
+    {
+      saturated_counter--;
+    }
+    else
+    {
+      saturated_counter++;
+    }
+  }
+  pht_predictor_table = (saturated_counter << (pht_index * 2)) | (pht_predictor_table & ~(0b11 << (pht_index * 2)));
+  openend_predictor_table[history_bit] = pht_predictor_table;
+}
+
