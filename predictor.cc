@@ -145,20 +145,113 @@ void UpdatePredictor_2level(UINT32 PC, bool resolveDir, bool predDir, UINT32 bra
 // openend
 /////////////////////////////////////////////////////////////
 
+unsigned long openend_history = 0;
+unsigned char openend_global_table[1024];
 
+unsigned char T1[256];
+unsigned char T2[256];
+unsigned char T3[256];
+unsigned char T4[256];
+
+
+unsigned char GetPredictorResult(unsigned char* table, unsigned char mapper)
+{
+  unsigned char element = *(table + mapper);
+  bool result = (element & 0b1) | ((element >> 1) & 0b10);
+  
+  return result; // T/NT, U/NU
+}
+
+unsigned char TagMapper(unsigned long history, unsigned int pc)
+{
+  unsigned long repeat_pc = (long) pc | ((long) pc << 32);
+  unsigned long unforded = repeat_pc ^ history;
+  unsigned char ford = 0;
+
+  for (int i = 0; i < 8; i++)
+  {
+    ford = ford ^ *(&unforded + i);
+  }
+  return ford;
+}
 
 void InitPredictor_openend() 
 {
+  // printf("%lu", sizeof(long));
+  // Initialize all tables
+  for (int i = 0; i < 256; i++)
+  {
+    T1[i] = 0b10;
+    T2[i] = 0b10;
+    T3[i] = 0b10;
+    T4[i] = 0b10;
+  }
 
+  for (int i = 0; i < 1024; i++)
+  {
+    openend_global_table[i] = 0b01010101;
+  }
 }
 
 bool GetPrediction_openend(UINT32 PC) 
 {
+  unsigned char bit_index = (PC >> 2) & 0b11;
+  unsigned short arr_index = (PC >> 4) & 0b1111111111; // Get next 10 bits
+  unsigned char T0_result = (openend_global_table[arr_index] >> (2 * bit_index)) & 0b11;
+
+  bool result = T0_result >> 1;
   
+  unsigned char* openend_tables[4];
+  openend_tables[0] = T1;
+  openend_tables[1] = T2;
+  openend_tables[2] = T3;
+  openend_tables[3] = T4;
+  unsigned long mask[4] = {0xFF, 0xFFFF, 0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF};
+
+  for (int i = 0; i < 4; i++)
+  {
+    unsigned char tmp = GetPredictorResult(openend_tables[i], TagMapper(openend_history & mask[i], PC));
+    if (tmp & 0b1) // u = 1
+    {
+      result = tmp >> 1;
+    }
+  }
+  return result;
 }
 
 void UpdatePredictor_openend(UINT32 PC, bool resolveDir, bool predDir, UINT32 branchTarget) 
 {
-  
+  // Update global predictor
+  unsigned char bit_index = (PC >> 2) & 0b11;
+  unsigned short arr_index = (PC >> 4) & 0b1111111111; // Get next 10 bits
+  unsigned char T0_result = (openend_global_table[arr_index] >> (2 * bit_index)) & 0b11;
+  if(resolveDir == predDir) // Correct prediction
+  {
+    if (T0_result == 0b10) // weakly taken correct
+    {
+      T0_result++;
+    }
+    else if (T0_result == 0b01) // weakly not taken correct
+    {
+      T0_result--;
+    }
+  }
+  else // Misprediction
+  {
+    if (predDir)  // 11 or 10
+    {
+      T0_result--;
+    }
+    else // 00 or 01
+    {
+      T0_result++;
+    }
+  }
+  // Update counter into table
+  openend_global_table[arr_index] = (T0_result << (bit_index * 2)) 
+      | (openend_global_table[arr_index] & ~(0b11 << (bit_index * 2)));
+
+  // Update history table
+  openend_history = (openend_history << 1) | resolveDir;
 }
 
