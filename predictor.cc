@@ -148,49 +148,124 @@ void UpdatePredictor_2level(UINT32 PC, bool resolveDir, bool predDir, UINT32 bra
 unsigned long openend_history = 0;
 unsigned char openend_global_table[1024];
 
-unsigned char T1[256];
-unsigned char T2[256];
-unsigned char T3[256];
-unsigned char T4[256];
+unsigned short T1[1024] = {0}; //ttttttttccuuu
+unsigned short T2[1024] = {0};
+unsigned short T3[1024] = {0};
+unsigned short T4[1024] = {0};
 
+unsigned short* openend_tables[4];
+unsigned long mask[4] = {0xFF, 0xFFFF, 0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF};
 
-unsigned char GetPredictorResult(unsigned char* table, unsigned char mapper)
+unsigned char provider;
+
+unsigned short IndexHash(unsigned long history, unsigned int pc) // 10 bit return
 {
-  unsigned char element = *(table + mapper);
-  bool result = (element & 0b1) | ((element >> 1) & 0b10);
-  
-  return result; // T/NT, U/NU
+  pc = pc >> 2;
+  unsigned short tmp = (pc ^ (pc >> 10)) & 0b1111111111;
+  for (int i = 0; i < 7; i++)
+  {
+    tmp = (tmp ^ history) & 0b1111111111;
+    history = history >> 10;
+  }
+  return tmp;
 }
 
-unsigned char TagMapper(unsigned long history, unsigned int pc)
+unsigned char TagHash(unsigned long history, unsigned int pc) // 8 bit return
 {
-  unsigned long repeat_pc = (long) pc | ((long) pc << 32);
-  unsigned long unforded = repeat_pc ^ history;
-  unsigned char ford = 0;
-
+  pc = pc >> 2;
+  unsigned short tmp = (pc ^ (pc >> 8)) & 0b11111111;
   for (int i = 0; i < 8; i++)
   {
-    ford = ford ^ *(&unforded + i);
+    tmp = (tmp ^ history) & 0b11111111;
+    history = history >> 8;
   }
-  return ford;
+  return tmp;
 }
+
+unsigned char GetPrediction(unsigned short* table, unsigned short index, unsigned char tag)
+{
+  unsigned short element = table[index];
+  if (element>>5 == tag && ((element & 0b111) > 0)) 
+  {
+    //printf("Hit\n");
+    return 0b1 | ((element >> 3) & 0b10); // T/NT, valid
+  }
+  return 0; // not valid output
+}
+
+void UpdatePrediction(unsigned short* table, unsigned short index, unsigned char tag, bool resolveDir, bool predDir, bool provider)
+{
+  unsigned short element = table[index];
+  unsigned char u = element & 0b111;
+  unsigned char c = (element >> 3) & 0b11;
+  unsigned char t = (element >> 5);
+  if (u != 0)
+  {
+    if (t != tag) return;
+    printf("%d, %d, corr=%d, u=%d, %d, %lu\n", t, tag, predDir == resolveDir, u, provider, openend_history);
+    if (resolveDir == (c >> 2))
+    {
+      u = u == 7 ? u : u + 1;
+    } 
+    else
+    {
+      u--;
+    }
+    if(provider)
+    {
+      if(resolveDir == predDir) // Correct prediction
+      {
+        if (c == 0b10) // weakly taken correct
+        {
+          c++;
+        }
+        else if (c == 0b01) // weakly not taken correct
+        {
+          c--;
+        }
+      }
+      else // Misprediction
+      {
+        if (predDir)  // 11 or 10
+        {
+          c--;
+        }
+        else // 00 or 01
+        {
+          c++;
+        }
+      }
+    }
+  }
+  else 
+  {
+    if(predDir != resolveDir)
+    {
+      u = 1;
+      t = tag;
+      c = resolveDir? 0b10 : 0b01;
+    }
+  }
+  element = t << 5 | c << 3 | u;
+  table[index] = element;
+}
+
 
 void InitPredictor_openend() 
 {
   // printf("%lu", sizeof(long));
-  // Initialize all tables
-  for (int i = 0; i < 256; i++)
-  {
-    T1[i] = 0b10;
-    T2[i] = 0b10;
-    T3[i] = 0b10;
-    T4[i] = 0b10;
-  }
+
+  // Initialize predictor table
 
   for (int i = 0; i < 1024; i++)
   {
     openend_global_table[i] = 0b01010101;
   }
+
+  openend_tables[0] = T1;
+  openend_tables[1] = T2;
+  openend_tables[2] = T3;
+  openend_tables[3] = T4;
 }
 
 bool GetPrediction_openend(UINT32 PC) 
@@ -198,24 +273,22 @@ bool GetPrediction_openend(UINT32 PC)
   unsigned char bit_index = (PC >> 2) & 0b11;
   unsigned short arr_index = (PC >> 4) & 0b1111111111; // Get next 10 bits
   unsigned char T0_result = (openend_global_table[arr_index] >> (2 * bit_index)) & 0b11;
-
   bool result = T0_result >> 1;
-  
-  unsigned char* openend_tables[4];
-  openend_tables[0] = T1;
-  openend_tables[1] = T2;
-  openend_tables[2] = T3;
-  openend_tables[3] = T4;
-  unsigned long mask[4] = {0xFF, 0xFFFF, 0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF};
-
+  printf("\nget: ");
+  provider = -1;
   for (int i = 0; i < 4; i++)
   {
-    unsigned char tmp = GetPredictorResult(openend_tables[i], TagMapper(openend_history & mask[i], PC));
+    unsigned char index = IndexHash(openend_history & mask[i], PC);
+    unsigned short tag = TagHash(openend_history & mask[i], PC);
+    unsigned char tmp = GetPrediction(openend_tables[i], index, tag); 
     if (tmp & 0b1) // u = 1
     {
+      printf("%d: %d ", i, tag);
       result = tmp >> 1;
+      provider = i;
     }
   }
+  // printf("Prediction: %d", provider);
   return result;
 }
 
@@ -251,7 +324,36 @@ void UpdatePredictor_openend(UINT32 PC, bool resolveDir, bool predDir, UINT32 br
   openend_global_table[arr_index] = (T0_result << (bit_index * 2)) 
       | (openend_global_table[arr_index] & ~(0b11 << (bit_index * 2)));
 
+  printf("\npre: ");
+
+  bool prov = false;
+  for (int i = 0; i < 4; i++)
+  {
+    unsigned char index = IndexHash(openend_history & mask[i], PC);
+    unsigned short tag = TagHash(openend_history & mask[i], PC);
+    printf("%d: %d ", i, tag);
+    // unsigned char tmp = GetPrediction(openend_tables[i], index, tag);
+    if (i == provider) prov = true;
+    UpdatePrediction(openend_tables[i], index, tag, resolveDir, predDir, provider);
+    if (prov && predDir == resolveDir) break; 
+  }
+  if (predDir != resolveDir)
+  {
+    for (int i = provider + 1; i < 4; i++)
+    {
+      for (int j = 0; j < 1024; j++)
+      {
+        unsigned short element = openend_tables[i][j];
+        unsigned char u = element & 0b111;
+        u = u == 0 ? 0 : u - 1;
+        element = (element & ~0b111) | u;
+        openend_tables[i][j] = element;
+      }
+    }
+  }
+
   // Update history table
   openend_history = (openend_history << 1) | resolveDir;
+  // printf("%lu\n", openend_history);
 }
 
