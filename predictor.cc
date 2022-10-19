@@ -269,7 +269,7 @@ bool TryCreateNewHistory(unsigned short* table, unsigned short index, unsigned c
     printf("Exception! Matched history! %d, %d, %5d, %3d\n", provider, (int)((table - openend_tables[0])/1024), t, tag);
     return false;
   }
-  u = 7;
+  u = 20;
   if (resolveDir)
   {
     c = 0b100;
