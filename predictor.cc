@@ -148,7 +148,7 @@ void UpdatePredictor_2level(UINT32 PC, bool resolveDir, bool predDir, UINT32 bra
 
 unsigned long openend_history = 0; // This value is not stable (will change between getpred() and updatepred())
 unsigned long get_history;         // So I will read this value from get_history at start of updatepred()
-unsigned char openend_global_table[1024]; // 12bit PC-index saturated counter table
+unsigned short openend_global_table[1024]; // 12bit PC-index 3-bit saturated counter table
 
 
 unsigned short T1[1024] = {0}; //ttttttttcccuuuuu
@@ -307,7 +307,7 @@ void InitPredictor_openend()
 
   for (int i = 0; i < 1024; i++)
   {
-    openend_global_table[i] = 0b01010101;
+    openend_global_table[i] = 0b0011001100110011;
   }
 
   openend_tables[0] = T1;
@@ -321,8 +321,8 @@ bool GetPrediction_openend(UINT32 PC)
   get_history = openend_history; // openend_history will change outside the loop
   unsigned char bit_index = (PC >> 2) & 0b11;
   unsigned short arr_index = (PC >> 4) & 0b1111111111; // Get next 10 bits
-  unsigned char T0_result = (openend_global_table[arr_index] >> (2 * bit_index)) & 0b11;
-  bool result = T0_result >> 1;
+  unsigned char T0_result = (openend_global_table[arr_index] >> (4 * bit_index)) & 0b111;
+  bool result = T0_result >> 2;
   provider = -1; // Indicate global PC predictor used
   for (int i = 0; i < 4; i++)
   {
@@ -344,25 +344,25 @@ void UpdatePredictor_openend(UINT32 PC, bool resolveDir, bool predDir, UINT32 br
   // Update global predictor
   unsigned char bit_index = (PC >> 2) & 0b11;
   unsigned short arr_index = (PC >> 4) & 0b1111111111; // Get next 10 bits
-  unsigned char T0_result = (openend_global_table[arr_index] >> (2 * bit_index)) & 0b11;
+  unsigned char T0_result = (openend_global_table[arr_index] >> (4 * bit_index)) & 0b111;
   if(resolveDir == predDir) // Correct prediction
   {
-    if (T0_result == 0b10) // weakly taken correct
+    if (T0_result >= 0b100 && T0_result != 0b111) // weakly taken correct
     {
       T0_result++;
     }
-    else if (T0_result == 0b01) // weakly not taken correct
+    else if (T0_result <= 0b011 && T0_result != 0b000) // weakly not taken correct
     {
       T0_result--;
     }
   }
   else // Misprediction
   {
-    if (predDir)  // 11 or 10
+    if (predDir)
     {
       T0_result--;
     }
-    else // 00 or 01
+    else
     {
       T0_result++;
     }
