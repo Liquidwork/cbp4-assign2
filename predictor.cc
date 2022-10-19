@@ -345,7 +345,7 @@ void UpdatePredictor_openend(UINT32 PC, bool resolveDir, bool predDir, UINT32 br
   unsigned char bit_index = (PC >> 2) & 0b11;
   unsigned short arr_index = (PC >> 4) & 0b1111111111; // Get next 10 bits
   unsigned char T0_result = (openend_global_table[arr_index] >> (4 * bit_index)) & 0b111;
-  if(resolveDir == predDir) // Correct prediction
+  if(resolveDir == T0_result>>2) // Correct prediction
   {
     if (T0_result >= 0b100 && T0_result != 0b111) // weakly taken correct
     {
