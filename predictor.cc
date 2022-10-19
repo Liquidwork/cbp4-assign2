@@ -106,14 +106,14 @@ void UpdatePredictor_2level(UINT32 PC, bool resolveDir, bool predDir, UINT32 bra
   unsigned char  pht_index = pc & 0b111; // get first 3 bits
   unsigned short bht_index = (pc >> 3) & 0b111111111; // get next 9 bits
   // index histroy bits
-  unsigned char  history_bit = twolevel_history_table[bht_index];
+  unsigned char  history_bit = twolevel_history_table[bht_index]; // range 0-63
   // index private predictor table by history bit
   unsigned short pht_predictor_table = twolevel_predictor_table[history_bit];
   // find saturated counter by PHT_index
   unsigned char  saturated_counter = (pht_predictor_table >> (pht_index * 2)) & 0b11;
   
   // Update history table
-  twolevel_history_table[bht_index] = ((history_bit << 1) & 0b111111111) | resolveDir;
+  twolevel_history_table[bht_index] = ((history_bit << 1) & 0b111111) | resolveDir;
   
   // Update saturated counter if needed
   if(resolveDir == predDir) // Correct prediction
@@ -147,8 +147,9 @@ void UpdatePredictor_2level(UINT32 PC, bool resolveDir, bool predDir, UINT32 bra
 /////////////////////////////////////////////////////////////
 
 unsigned long openend_history = 0; // This value is not stable (will change between getpred() and updatepred())
-unsigned char openend_global_table[1024];
 unsigned long get_history;         // So I will read this value from get_history at start of updatepred()
+unsigned char openend_global_table[1024]; // 12bit PC-index saturated counter table
+
 
 unsigned short T1[1024] = {0}; //ttttttttccuuu
 unsigned short T2[1024] = {0};
@@ -268,7 +269,7 @@ bool TryCreateNewHistory(unsigned short* table, unsigned short index, unsigned c
     printf("Exception! Matched history! %d, %d, %5d, %3d\n", provider, (int)((table - openend_tables[0])/1024), t, tag);
     return false;
   }
-  u = 4;
+  u = 7;
   if (resolveDir)
   {
     c = 0b10;
@@ -322,7 +323,7 @@ bool GetPrediction_openend(UINT32 PC)
   unsigned short arr_index = (PC >> 4) & 0b1111111111; // Get next 10 bits
   unsigned char T0_result = (openend_global_table[arr_index] >> (2 * bit_index)) & 0b11;
   bool result = T0_result >> 1;
-  provider = -1;
+  provider = -1; // Indicate global PC predictor used
   for (int i = 0; i < 4; i++)
   {
     unsigned short index = IndexHash(openend_history & mask[i], PC);
