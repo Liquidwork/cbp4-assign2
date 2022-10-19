@@ -148,10 +148,10 @@ void UpdatePredictor_2level(UINT32 PC, bool resolveDir, bool predDir, UINT32 bra
 
 unsigned long openend_history = 0; // This value is not stable (will change between getpred() and updatepred())
 unsigned long get_history;         // So I will read this value from get_history at start of updatepred()
-unsigned char openend_global_table[1024]; // 12bit PC-index saturated counter table
+unsigned short openend_global_table[1024]; // 12bit PC-index 3-bit saturated counter table
 
 
-unsigned short T1[1024] = {0}; //ttttttttccuuu
+unsigned short T1[1024] = {0}; //ttttttttcccuuuuu
 unsigned short T2[1024] = {0};
 unsigned short T3[1024] = {0};
 unsigned short T4[1024] = {0};
@@ -192,12 +192,12 @@ unsigned char TagHash(unsigned long history, unsigned int pc) // 8 bit return
 unsigned char GetTablePrediction(unsigned short* table, unsigned short index, unsigned char tag)
 {
   unsigned short element = table[index];
-  unsigned char u = element & 0b111;
-  // unsigned char c = (element >> 3) & 0b11;
-  unsigned char t = (element >> 5);
+  unsigned char u = element & 0b11111;
+  // unsigned char c = (element >> 5) & 0b111;
+  unsigned char t = (element >> 8);
   if (t == tag && u > 0) 
   {
-    return 0b1 | ((element >> 3) & 0b10); // T/NT, valid
+    return 0b1 | ((element >> 6) & 0b10); // T/NT, valid
   }
   return 0; // not valid output
 }
@@ -205,19 +205,19 @@ unsigned char GetTablePrediction(unsigned short* table, unsigned short index, un
 void UpdatePredictor(unsigned short* table, unsigned short index, unsigned char tag, bool resolveDir, bool predDir)
 {
   unsigned short element = table[index];
-  unsigned char u = element & 0b111;
-  unsigned char c = (element >> 3) & 0b11;
-  unsigned char t = (element >> 5);
+  unsigned char u = element & 0b11111;
+  unsigned char c = (element >> 5) & 0b111;
+  unsigned char t = (element >> 8);
   if (u == 0 || t != tag) return;
-  if (resolveDir == (c >> 1))
+  if (resolveDir == (c >> 2))
   {
-    u = u == 7 ? u : u + 1;
+    u = u == 31 ? u : u + 1;
   } 
   else
   {
     u--;
   }
-  element = u | c << 3 | t << 5;
+  element = u | c << 5 | t << 8;
   table[index] = element;
 }
 
@@ -227,17 +227,17 @@ void UpdatePredictor(unsigned short* table, unsigned short index, unsigned char 
 void UpdateProvider(unsigned short* table, unsigned short index, unsigned char tag, bool resolveDir, bool predDir)
 {
   unsigned short element = table[index];
-  unsigned char u = element & 0b111;
-  unsigned char c = (element >> 3) & 0b11;
-  unsigned char t = (element >> 5);
+  unsigned char u = element & 0b11111;
+  unsigned char c = (element >> 5) & 0b111;
+  unsigned char t = (element >> 8);
   if (u == 0 || t != tag) return;
   if(resolveDir == predDir) // Correct prediction
   {
-    if (c == 0b10) // weakly taken correct
+    if (c >= 0b100 && c != 0b111) // weakly taken correct
     {
       c++;
     }
-    else if (c == 0b01) // weakly not taken correct
+    else if (c <= 0b011 && c != 0b000) // weakly not taken correct
     {
       c--;
     }
@@ -253,33 +253,33 @@ void UpdateProvider(unsigned short* table, unsigned short index, unsigned char t
       c++;
     }
   }
-  element = u | c << 3 | t << 5;
+  element = u | c << 5 | t << 8;
   table[index] = element;
 }
 
 bool TryCreateNewHistory(unsigned short* table, unsigned short index, unsigned char tag, bool resolveDir, bool predDir) // success true else false
 {
   unsigned short element = table[index];
-  unsigned char u = element & 0b111;
-  unsigned char c = (element >> 3) & 0b11;
-  unsigned char t = (element >> 5);
+  unsigned char u = element & 0b11111;
+  unsigned char c = (element >> 5) & 0b111;
+  unsigned char t = (element >> 8);
   if (u != 0)
   {
     if (t != tag) return false;
     printf("Exception! Matched history! %d, %d, %5d, %3d\n", provider, (int)((table - openend_tables[0])/1024), t, tag);
     return false;
   }
-  u = 7;
+  u = 20;
   if (resolveDir)
   {
-    c = 0b10;
+    c = 0b100;
   }
   else
   {
-    c = 0b01;
+    c = 0b011;
   }
   t = tag;
-  element = u | c << 3 | t << 5;
+  element = u | c << 5 | t << 8;
   table[index] = element;
   return true;
 }
@@ -287,16 +287,16 @@ bool TryCreateNewHistory(unsigned short* table, unsigned short index, unsigned c
 void HistoryMatchDecrease(unsigned short* table, unsigned short index)
 {
   unsigned short element = table[index];
-  unsigned char u = element & 0b111;
-  unsigned char c = (element >> 3) & 0b11;
-  unsigned char t = (element >> 5);
+  unsigned char u = element & 0b11111;
+  unsigned char c = (element >> 5) & 0b111;
+  unsigned char t = (element >> 8);
   u--;
   if (u < 0)
   {
     printf("Exception! History decrease u < 0.\n");
     u = 0;
   }
-  element = u | c << 3 | t << 5;
+  element = u | c << 5 | t << 8;
   table[index] = element;
 }
 
@@ -307,7 +307,7 @@ void InitPredictor_openend()
 
   for (int i = 0; i < 1024; i++)
   {
-    openend_global_table[i] = 0b01010101;
+    openend_global_table[i] = 0b0011001100110011;
   }
 
   openend_tables[0] = T1;
@@ -321,8 +321,8 @@ bool GetPrediction_openend(UINT32 PC)
   get_history = openend_history; // openend_history will change outside the loop
   unsigned char bit_index = (PC >> 2) & 0b11;
   unsigned short arr_index = (PC >> 4) & 0b1111111111; // Get next 10 bits
-  unsigned char T0_result = (openend_global_table[arr_index] >> (2 * bit_index)) & 0b11;
-  bool result = T0_result >> 1;
+  unsigned char T0_result = (openend_global_table[arr_index] >> (4 * bit_index)) & 0b111;
+  bool result = T0_result >> 2;
   provider = -1; // Indicate global PC predictor used
   for (int i = 0; i < 4; i++)
   {
@@ -344,25 +344,25 @@ void UpdatePredictor_openend(UINT32 PC, bool resolveDir, bool predDir, UINT32 br
   // Update global predictor
   unsigned char bit_index = (PC >> 2) & 0b11;
   unsigned short arr_index = (PC >> 4) & 0b1111111111; // Get next 10 bits
-  unsigned char T0_result = (openend_global_table[arr_index] >> (2 * bit_index)) & 0b11;
-  if(resolveDir == predDir) // Correct prediction
+  unsigned char T0_result = (openend_global_table[arr_index] >> (4 * bit_index)) & 0b111;
+  if(resolveDir == T0_result>>2) // Correct prediction
   {
-    if (T0_result == 0b10) // weakly taken correct
+    if (T0_result >= 0b100 && T0_result != 0b111) // weakly taken correct
     {
       T0_result++;
     }
-    else if (T0_result == 0b01) // weakly not taken correct
+    else if (T0_result <= 0b011 && T0_result != 0b000) // weakly not taken correct
     {
       T0_result--;
     }
   }
   else // Misprediction
   {
-    if (predDir)  // 11 or 10
+    if (predDir)
     {
       T0_result--;
     }
-    else // 00 or 01
+    else
     {
       T0_result++;
     }
