@@ -1,5 +1,4 @@
 #include "predictor.h"
-#include <unistd.h>
 
 /////////////////////////////////////////////////////////////
 // 2bitsat
@@ -18,9 +17,8 @@ void InitPredictor_2bitsat()
 
 bool GetPrediction_2bitsat(UINT32 PC) 
 {
-  unsigned int   pc = PC >> 2; // Eliminate 2 most insignificant bits (always 0b00)
-  unsigned char  bit_index = pc & 0b11;
-  unsigned short arr_index = (pc >> 2) & 0b1111111111;
+  unsigned char  bit_index = PC & 0b11;
+  unsigned short arr_index = (PC >> 2) & 0b1111111111;
   // Get the counter from the table
   unsigned char  counter = (twobitsat_predictor_table[arr_index] >> (bit_index * 2)) & 0b11;
   // Determine taken or not
@@ -32,9 +30,8 @@ bool GetPrediction_2bitsat(UINT32 PC)
 void UpdatePredictor_2bitsat(UINT32 PC, bool resolveDir, bool predDir, UINT32 branchTarget) 
 {
   // Get all value first
-  unsigned int   pc = PC >> 2; // Eliminate 2 most insignificant bits (always 0b00)
-  unsigned char  bit_index = pc & 0b11;
-  unsigned short arr_index = (pc >> 2) & 0b1111111111;
+  unsigned char  bit_index = PC & 0b11;
+  unsigned short arr_index = (PC >> 2) & 0b1111111111;
   // Get the counter from the table
   unsigned char  counter = (twobitsat_predictor_table[arr_index] >> (bit_index * 2)) & 0b11;
   
@@ -85,9 +82,8 @@ void InitPredictor_2level()
 
 bool GetPrediction_2level(UINT32 PC) 
 {
-  unsigned int   pc = PC >> 2; // Eliminate 2 most insignificant bits (always 0b00)
-  unsigned char  pht_index = pc & 0b111; // get first 3 bits
-  unsigned short bht_index = (pc >> 3) & 0b111111111; // get next 9 bits
+  unsigned char  pht_index = PC & 0b111; // get first 3 bits
+  unsigned short bht_index = (PC >> 3) & 0b111111111; // get next 9 bits
   // index histroy bits
   unsigned char  history_bit = twolevel_history_table[bht_index];
   // index private predictor table by history bit
@@ -102,9 +98,8 @@ bool GetPrediction_2level(UINT32 PC)
 void UpdatePredictor_2level(UINT32 PC, bool resolveDir, bool predDir, UINT32 branchTarget) 
 {
   // get all data in need first
-  unsigned int   pc = PC >> 2; // Eliminate 2 most insignificant bits (always 0b00)
-  unsigned char  pht_index = pc & 0b111; // get first 3 bits
-  unsigned short bht_index = (pc >> 3) & 0b111111111; // get next 9 bits
+  unsigned char  pht_index = PC & 0b111; // get first 3 bits
+  unsigned short bht_index = (PC >> 3) & 0b111111111; // get next 9 bits
   // index histroy bits
   unsigned char  history_bit = twolevel_history_table[bht_index]; // range 0-63
   // index private predictor table by history bit
@@ -165,20 +160,17 @@ unsigned short IndexHash(unsigned long history, unsigned int pc) // 10 bit retur
 {
   // printf("%ld", history);
   unsigned long h = history;
-  pc = pc >> 2;
   unsigned short tmp = (pc ^ (pc >> 10)) & 0b1111111111;
   for (int i = 0; i < 7; i++)
   {
     tmp = (tmp ^ h) & 0b1111111111;
     h = h >> 10;
   }
-  // printf(", %d --> %d\n", pc, tmp);
   return tmp;
 }
 
 unsigned char TagHash(unsigned long history, unsigned int pc) // 8 bit return
 {
-  pc = pc >> 2;
   unsigned long h = history;
   unsigned short tmp = (pc ^ (pc >> 8)) & 0b11111111;
   for (int i = 0; i < 8; i++)
@@ -319,8 +311,8 @@ void InitPredictor_openend()
 bool GetPrediction_openend(UINT32 PC) 
 {
   get_history = openend_history; // openend_history will change outside the loop
-  unsigned char bit_index = (PC >> 2) & 0b11;
-  unsigned short arr_index = (PC >> 4) & 0b1111111111; // Get next 10 bits
+  unsigned char bit_index = PC & 0b11;
+  unsigned short arr_index = (PC >> 2) & 0b1111111111; // Get next 10 bits
   unsigned char T0_result = (openend_global_table[arr_index] >> (4 * bit_index)) & 0b111;
   bool result = T0_result >> 2;
   provider = -1; // Indicate global PC predictor used
