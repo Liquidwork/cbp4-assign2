@@ -379,7 +379,7 @@ void UpdatePredictor_openend(UINT32 PC, bool resolveDir, bool predDir, UINT32 br
   }
   if (predDir != resolveDir)
   {
-    if (provider != 3) // last table
+    if (provider != 3) // last table do not decrease all.
     {
       int next_table = (int)provider + 1;
       while (next_table <= 3)
