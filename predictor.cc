@@ -382,23 +382,20 @@ void UpdatePredictor_openend(UINT32 PC, bool resolveDir, bool predDir, UINT32 br
   }
   if (predDir != resolveDir)
   {
-    if (provider != 3) // last table
+    int next_table = (int)provider + 1;
+    while (next_table <= 3)
     {
-      int next_table = (int)provider + 1;
-      while (next_table <= 3)
+      unsigned short index = IndexHash(openend_history & mask[next_table], PC);
+      unsigned char tag = TagHash(openend_history & mask[next_table], PC);
+      if (TryCreateNewHistory(openend_tables[next_table], index, tag, resolveDir, predDir)) break; // Create sucess
+      next_table++;
+    }
+    if (next_table == 4) // Indicate create new history failed
+    {
+      for (int i = 0; i < 4; i++)
       {
-        unsigned short index = IndexHash(openend_history & mask[next_table], PC);
-        unsigned char tag = TagHash(openend_history & mask[next_table], PC);
-        if (TryCreateNewHistory(openend_tables[next_table], index, tag, resolveDir, predDir)) break; // Create sucess
-        next_table++;
-      }
-      if (next_table == 4) // Indicate create new history failed
-      {
-        for (int i = 0; i < 4; i++)
-        {
-          unsigned short index = IndexHash(openend_history & mask[i], PC);
-          HistoryMatchDecrease(openend_tables[i], index);
-        }
+        unsigned short index = IndexHash(openend_history & mask[i], PC);
+        HistoryMatchDecrease(openend_tables[i], index);
       }
     }
   }
