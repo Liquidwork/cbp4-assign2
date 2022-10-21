@@ -154,8 +154,9 @@ unsigned short T4[1024] = {0};
 unsigned short* openend_tables[4];
 unsigned long mask[4] = {0xFF, 0xFFFF, 0xFFFFFFFF, 0xFFFFFFFFFFFFFFFF};
 
-char provider;
+char provider; // The provider of last prediction.
 
+// Get 10bit index from history and pc
 unsigned short IndexHash(unsigned long history, unsigned int pc) // 10 bit return
 {
   // printf("%ld", history);
@@ -169,6 +170,7 @@ unsigned short IndexHash(unsigned long history, unsigned int pc) // 10 bit retur
   return tmp;
 }
 
+// Get 8bit index from history and pc
 unsigned char TagHash(unsigned long history, unsigned int pc) // 8 bit return
 {
   unsigned long h = history;
@@ -181,6 +183,7 @@ unsigned char TagHash(unsigned long history, unsigned int pc) // 8 bit return
   return tmp;
 }
 
+// Get the prediction from tagged prediction table (return value will be in [pred, valid] 2-bit form)
 unsigned char GetTablePrediction(unsigned short* table, unsigned short index, unsigned char tag)
 {
   unsigned short element = table[index];
@@ -194,6 +197,7 @@ unsigned char GetTablePrediction(unsigned short* table, unsigned short index, un
   return 0; // not valid output
 }
 
+// Update the tagged prediction table's u value
 void UpdatePredictor(unsigned short* table, unsigned short index, unsigned char tag, bool resolveDir, bool predDir)
 {
   unsigned short element = table[index];
@@ -213,9 +217,8 @@ void UpdatePredictor(unsigned short* table, unsigned short index, unsigned char 
   table[index] = element;
 }
 
-/**
- * Update saturated counter of history provider
-*/
+
+// Update saturated counter of history provider
 void UpdateProvider(unsigned short* table, unsigned short index, unsigned char tag, bool resolveDir, bool predDir)
 {
   unsigned short element = table[index];
@@ -249,6 +252,7 @@ void UpdateProvider(unsigned short* table, unsigned short index, unsigned char t
   table[index] = element;
 }
 
+// Try to create new entry in the table. If created, return true. If the entry is used or tale is full, return false
 bool TryCreateNewHistory(unsigned short* table, unsigned short index, unsigned char tag, bool resolveDir, bool predDir) // success true else false
 {
   unsigned short element = table[index];
@@ -261,7 +265,7 @@ bool TryCreateNewHistory(unsigned short* table, unsigned short index, unsigned c
     printf("Exception! Matched history! %d, %d, %5d, %3d\n", provider, (int)((table - openend_tables[0])/1024), t, tag);
     return false;
   }
-  u = 20;
+  u = 20; // Initial u value, optimal value.
   if (resolveDir)
   {
     c = 0b100;
@@ -276,6 +280,7 @@ bool TryCreateNewHistory(unsigned short* table, unsigned short index, unsigned c
   return true;
 }
 
+// Decrease u for all entries the matched index and tag.
 void HistoryMatchDecrease(unsigned short* table, unsigned short index)
 {
   unsigned short element = table[index];
@@ -299,7 +304,7 @@ void InitPredictor_openend()
 
   for (int i = 0; i < 1024; i++)
   {
-    openend_global_table[i] = 0b0011001100110011;
+    openend_global_table[i] = 0b0011001100110011; // Initially, all weakly NT.
   }
 
   openend_tables[0] = T1;
@@ -321,7 +326,7 @@ bool GetPrediction_openend(UINT32 PC)
     unsigned short index = IndexHash(openend_history & mask[i], PC);
     unsigned char tag = TagHash(openend_history & mask[i], PC);
     unsigned char tmp = GetTablePrediction(openend_tables[i], index, tag); 
-    if (tmp & 0b1) // u = 1
+    if (tmp & 0b1) // result is valid
     {
       result = tmp >> 1;
       provider = i;
@@ -359,9 +364,11 @@ void UpdatePredictor_openend(UINT32 PC, bool resolveDir, bool predDir, UINT32 br
       T0_result++;
     }
   }
-  // Update counter into table
+  // Update counter into base predictor table
   openend_global_table[arr_index] = (T0_result << (bit_index * 2)) 
       | (openend_global_table[arr_index] & ~(0b11 << (bit_index * 2)));
+
+  // Try to update tagged tables
   for (int i = 0; i < 4; i++)
   {
     unsigned short index = IndexHash(openend_history & mask[i], PC);
