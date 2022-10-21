@@ -141,8 +141,7 @@ void UpdatePredictor_2level(UINT32 PC, bool resolveDir, bool predDir, UINT32 bra
 // openend
 /////////////////////////////////////////////////////////////
 
-unsigned long openend_history = 0; // This value is not stable (will change between getpred() and updatepred())
-unsigned long get_history;         // So I will read this value from get_history at start of updatepred()
+unsigned long openend_history = 0; // 64 bit history
 unsigned short openend_global_table[1024]; // 12bit PC-index 3-bit saturated counter table
 
 
@@ -315,7 +314,6 @@ void InitPredictor_openend()
 
 bool GetPrediction_openend(UINT32 PC) 
 {
-  get_history = openend_history; // openend_history will change outside the loop
   unsigned char bit_index = PC & 0b11;
   unsigned short arr_index = (PC >> 2) & 0b1111111111; // Get next 10 bits
   unsigned char T0_result = (openend_global_table[arr_index] >> (4 * bit_index)) & 0b111;
@@ -337,7 +335,6 @@ bool GetPrediction_openend(UINT32 PC)
 
 void UpdatePredictor_openend(UINT32 PC, bool resolveDir, bool predDir, UINT32 branchTarget) 
 {
-  openend_history = get_history;
   // Update global predictor
   unsigned char bit_index = (PC >> 2) & 0b11;
   unsigned short arr_index = (PC >> 4) & 0b1111111111; // Get next 10 bits
@@ -401,6 +398,6 @@ void UpdatePredictor_openend(UINT32 PC, bool resolveDir, bool predDir, UINT32 br
   }
 
   // Update history table
-  openend_history = (get_history << 1) | resolveDir;
+  openend_history = (openend_history << 1) | resolveDir;
 }
 
